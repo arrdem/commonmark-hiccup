@@ -5,7 +5,9 @@
             :url  "http://www.eclipse.org/legal/epl-v10.html"}
 
   :dependencies [[org.clojure/clojure "1.8.0"]
-                 [com.atlassian.commonmark/commonmark "0.8.0"]
+                 [com.atlassian.commonmark/commonmark "0.9.0"]
+                 [com.atlassian.commonmark/commonmark-ext-gfm-tables "0.9.0"]
+                 [com.atlassian.commonmark/commonmark-ext-gfm-strikethrough "0.9.0"]
                  [hiccup "1.0.5"]]
 
   :plugins [[me.arrdem/lein-git-version "LATEST"]]

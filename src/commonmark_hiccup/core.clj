@@ -32,11 +32,21 @@
             ,,StrongEmphasis
             ,,ThematicBreak
             ,,SoftLineBreak
-            ,,HardLineBreak]))
+            ,,HardLineBreak]
+           [org.commonmark.ext.gfm.tables
+            ,,TableBlock
+            ,,TableBody
+            ,,TableHead
+            ,,TableRow
+            ,,TableCell
+            ,,TablesExtension]
+           [org.commonmark.ext.gfm.strikethrough
+            ,,Strikethrough
+            ,,StrikethroughExtension]))
 
 (set! *warn-on-reflection* true)
 
-(declare text-content)
+(declare text-content children tree)
 
 (def default-config
   "An options map.
@@ -49,7 +59,12 @@
   instance classes to specifications used to render that node class to
   Hiccup. See `#'render-node` for an exhaustive discussion of
   supported render specifications."
-  {;; Attempt normalization of hiccup structures?
+  {;; Markdown extensions to use
+   :extensions
+   [(TablesExtension/create)
+    (StrikethroughExtension/create)]
+
+   ;; Attempt normalization of hiccup structures?
    :normalize
    true
 
@@ -57,7 +72,8 @@
    ;; selectors, literal strings, maps from keys to specs or Hiccup tags with specs as bodies.
    :renderer
    {:nodes
-    {Document          :content
+    {;; Standard Markdown features
+     Document          :content
      Heading           (fn [^Heading node]
                          [(keyword (str "h" (.getLevel node)))
                           (text-content node)])
@@ -85,7 +101,17 @@
      StrongEmphasis    [:strong :content]
      ThematicBreak     [:hr]
      SoftLineBreak     " "
-     HardLineBreak     [:br]}}})
+     HardLineBreak     [:br]
+
+     ;; Strikethrough
+     Strikethrough [:span {:style "strike"} :content]
+
+     ;; Tables
+     TableBlock [:table {} :content]
+     TableHead [:thead {} :content]
+     TableBody [:tbody {} :content]
+     TableRow [:tr {} :content]
+     TableCell [:td {} :content]}}})
 
 (defn children
   "Returns a seq of the children of a commonmark-java AST node."
@@ -93,6 +119,10 @@
   (->> (.getFirstChild node)
        (iterate #(.getNext ^Node %))
        (take-while some?)))
+
+(defn tree
+  [^Node node]
+  (cons node (map tree (children node))))
 
 (defn text-content
   "Recursively walks over the given commonmark-java AST node depth-first,
@@ -191,24 +221,29 @@
         d-children       (delay (render-children node))
         d-children-tight (delay (render-children (first (children node))))
         d-text           (delay (text-content node))]
-    (->> spec
-         ;; Do the render
-         (walk/postwalk (partial fix
-                                 (comp #(cond (= :content %)       @d-children
-                                              (= :content-tight %) @d-children-tight
-                                              (= :text-content %)  @d-text
-                                              :else                %)
-                                       #(get props % %)
-                                       #(if (and (fn? %) (not (keyword? %)))
-                                          (% node) %))))
-         ;; Clean up the output some
-         (#(if (:normalize config) (normalize-hiccup %) %)))))
+    (or (->> spec
+             ;; Do the render
+             (walk/postwalk (partial fix
+                                     (comp #(cond (= :content %)       @d-children
+                                                  (= :content-tight %) @d-children-tight
+                                                  (= :text-content %)  @d-text
+                                                  :else                %)
+                                           #(get props % %)
+                                           #(if (and (fn? %) (not (keyword? %)))
+                                              (% node) %))))
+             ;; Clean up the output some
+             (#(if (:normalize config) (normalize-hiccup %) %)))
+        node)))
 
 (defn ^Document parse-markdown
   "Parses a string of markdown, returning the parsed CommonMark Document."
-  [s]
-  (let [parser (.build (Parser/builder))]
-    (.parse parser s)))
+  ([s]
+   (parse-markdown {} s))
+  ([config ^String s]
+   (let [builder (Parser/builder)]
+     (if-let [extensions (:extensions config)]
+       (.extensions builder (vec extensions)))
+     (.parse (.build builder) s))))
 
 (defn markdown->hiccup
   "Parses the markdown and converts to a hiccup-compatible data structure.
@@ -217,7 +252,7 @@
   ([s]
    (markdown->hiccup default-config s))
   ([config s]
-   (render-node config (parse-markdown s))))
+   (render-node config (parse-markdown config s))))
 
 (defn markdown->html
   "Parses the markdown and renders to HTML via Hiccup.
